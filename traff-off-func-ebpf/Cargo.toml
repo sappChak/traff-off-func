@@ -1,0 +1,18 @@
+[package]
+name = "traff-off-func-ebpf"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+traff-off-func-common = { path = "../traff-off-func-common" }
+
+aya-ebpf = { workspace = true }
+aya-log-ebpf = { workspace = true }
+network-types = "0.1.0"
+
+[build-dependencies]
+which = { workspace = true }
+
+[[bin]]
+name = "traff-off-func"
+path = "src/main.rs"

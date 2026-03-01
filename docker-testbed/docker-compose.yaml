@@ -1,0 +1,28 @@
+services:
+  node-a:
+    image: nicolaka/netshoot
+    container_name: xdp-node-a
+    command: sleep infinity
+    privileged: true
+    networks:
+      xdp-bridge:
+        ipv4_address: 172.20.0.10
+
+  node-b:
+    image: nicolaka/netshoot
+    container_name: xdp-node-b
+    command: sleep infinity
+    privileged: true
+    networks:
+      xdp-bridge:
+        ipv4_address: 172.20.0.20
+
+networks:
+  xdp-bridge:
+    name: xdp-test-net
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-xdp
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
