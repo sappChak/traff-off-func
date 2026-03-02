@@ -12,11 +12,10 @@ use aya_log_ebpf::info;
 use network_types::{
     eth::{EthHdr, EtherType},
     ip::Ipv4Hdr,
-    udp::UdpHdr,
 };
 
 #[map(name = "REDIRECT_MAP")]
-static REDIRECT_MAP: DevMapHash = DevMapHash::with_max_entries(256, 0);
+static REDIRECT_MAP: DevMapHash = DevMapHash::with_max_entries(32, 0);
 
 #[xdp]
 pub fn xdp_redirect(ctx: XdpContext) -> u32 {
@@ -24,6 +23,11 @@ pub fn xdp_redirect(ctx: XdpContext) -> u32 {
         Ok(ret) => ret,
         Err(_) => xdp_action::XDP_ABORTED,
     }
+}
+
+#[xdp]
+pub fn xdp_pass(_ctx: XdpContext) -> u32 {
+    xdp_action::XDP_PASS
 }
 
 #[inline(always)]
@@ -47,38 +51,20 @@ fn try_xdp_redirect(ctx: XdpContext) -> Result<u32, ()> {
     }
     let ipv4hdr: *const Ipv4Hdr = ptr_at(&ctx, EthHdr::LEN)?;
 
-    let source_address: u32 = u32::from_be_bytes(unsafe { (*ipv4hdr).src_addr });
     let destination_address: u32 = u32::from_be_bytes(unsafe { (*ipv4hdr).dst_addr });
 
-    let (source_port, destination_port) = match unsafe { (*ipv4hdr).proto } {
-        network_types::ip::IpProto::Udp => {
-            let udphdr: *const UdpHdr = ptr_at(&ctx, EthHdr::LEN + Ipv4Hdr::LEN)?;
-            (unsafe { (*udphdr).src_port() }, unsafe {
-                (*udphdr).dst_port()
-            })
-        }
-        _ => return Ok(xdp_action::XDP_PASS), // TCP logic is implemented in the kernel
-    };
-
-    match REDIRECT_MAP.redirect(destination_address, 0) {
-        Ok(xdp_code) => {
+    match unsafe { (*ipv4hdr).proto } {
+        network_types::ip::IpProto::Udp | network_types::ip::IpProto::Icmp => {
             info!(
                 &ctx,
-                "Redirecting packet from {:i}:{} to {:i}:{}",
-                source_address,
-                source_port,
-                destination_address,
-                destination_port
+                "redirecting towards destination address: {:i}", destination_address
             );
-            Ok(xdp_code)
+            match REDIRECT_MAP.redirect(destination_address, 0) {
+                Ok(xdp_code) => Ok(xdp_code),
+                Err(xdp_code) => Ok(xdp_code),
+            }
         }
-        Err(xdp_code) => {
-            info!(
-                &ctx,
-                "destination address doesn't match, returning code: {}", xdp_code
-            );
-            Ok(xdp_code)
-        }
+        _ => Ok(xdp_action::XDP_PASS), // TCP logic is implemented in the kernel
     }
 }
 

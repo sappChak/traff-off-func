@@ -9,7 +9,7 @@ license.workspace = true
 traff-off-func-common = { path = "../traff-off-func-common", features = ["user"] }
 
 anyhow = { workspace = true, default-features = true }
-nix = { version = "0.31.2", features = ["net"] }
+nix = { version = "0.31.2", features = ["net", "sched"] }
 docker-api = "0.14.0"
 futures = "0.3"
 aya = { workspace = true }
