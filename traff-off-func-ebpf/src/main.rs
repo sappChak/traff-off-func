@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-use core::mem;
+use core::mem::{self, offset_of};
 
 use aya_ebpf::{
     bindings::xdp_action,
@@ -8,10 +8,9 @@ use aya_ebpf::{
     maps::DevMapHash,
     programs::XdpContext,
 };
-use aya_log_ebpf::info;
 use network_types::{
     eth::{EthHdr, EtherType},
-    ip::Ipv4Hdr,
+    ip::{IpProto, Ipv4Hdr},
 };
 
 #[map(name = "REDIRECT_MAP")]
@@ -44,27 +43,23 @@ fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
 }
 
 fn try_xdp_redirect(ctx: XdpContext) -> Result<u32, ()> {
-    let ethhdr: *const EthHdr = ptr_at(&ctx, 0)?;
-    match unsafe { (*ethhdr).ether_type() } {
-        Ok(EtherType::Ipv4) => (),
+    let ether_type_ptr: *const EtherType = ptr_at(&ctx, offset_of!(EthHdr, ether_type))?;
+    match unsafe { *ether_type_ptr } {
+        EtherType::Ipv4 => (),
         _ => return Ok(xdp_action::XDP_PASS),
     }
-    let ipv4hdr: *const Ipv4Hdr = ptr_at(&ctx, EthHdr::LEN)?;
 
-    let destination_address: u32 = u32::from_be_bytes(unsafe { (*ipv4hdr).dst_addr });
+    let ipv4_proto_ptr: *const IpProto = ptr_at(&ctx, EthHdr::LEN + offset_of!(Ipv4Hdr, proto))?;
+    let dest_addr_ptr: *const [u8; 4] = ptr_at(&ctx, EthHdr::LEN + offset_of!(Ipv4Hdr, dst_addr))?;
 
-    match unsafe { (*ipv4hdr).proto } {
-        network_types::ip::IpProto::Udp | network_types::ip::IpProto::Icmp => {
-            info!(
-                &ctx,
-                "redirecting towards destination address: {:i}", destination_address
-            );
-            match REDIRECT_MAP.redirect(destination_address, 0) {
-                Ok(xdp_code) => Ok(xdp_code),
-                Err(xdp_code) => Ok(xdp_code),
-            }
-        }
-        _ => Ok(xdp_action::XDP_PASS), // TCP logic is implemented in the kernel
+    let dest_addr = u32::from_be_bytes(unsafe { *dest_addr_ptr });
+
+    match unsafe { *ipv4_proto_ptr } {
+        IpProto::Udp | IpProto::Tcp | IpProto::Icmp => match REDIRECT_MAP.redirect(dest_addr, 2) {
+            Ok(xdp_code) => Ok(xdp_code),
+            Err(xdp_code) => Ok(xdp_code),
+        },
+        _ => Ok(xdp_action::XDP_PASS),
     }
 }
 
